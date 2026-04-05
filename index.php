@@ -1,148 +1,131 @@
 <?php
-if(!file_exists("data")) mkdir("data", 0777, true);
-if(!file_exists("uploads")) mkdir("uploads", 0777, true);
-if(!file_exists("data/posts.json")) file_put_contents("data/posts.json", json_encode([]));
-
-function readJson($file){
-    return json_decode(file_get_contents($file), true);
-}
-
-function writeJson($file, $data){
-    file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-}
-
-$posts = readJson("data/posts.json");
-
-if($_SERVER['REQUEST_METHOD'] === 'POST'){
-    if(isset($_POST['action']) && $_POST['action'] === 'write'){
-        $newPost = [
-            "id" => time(),
-            "title" => $_POST['title'],
-            "content" => $_POST['content'],
-            "comments" => [],
-            "image" => "",
-            "views" => 0
-        ];
-        if(isset($_FILES['image']) && $_FILES['image']['tmp_name']){
-            $ext = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-            $filename = "uploads/".time()."_".rand(1000,9999).".".$ext;
-            move_uploaded_file($_FILES['image']['tmp_name'], $filename);
-            $newPost['image'] = $filename;
-        }
-        $posts[] = $newPost;
-        writeJson("data/posts.json", $posts);
-        header("Location: index.php");
-        exit;
-    } elseif(isset($_POST['action']) && $_POST['action'] === 'comment'){
-        $id = $_POST['id'];
-        $comment = $_POST['comment'];
-        foreach($posts as &$post){
-            if($post['id'] == $id){
-                $post['comments'][] = $comment;
-            }
-        }
-        writeJson("data/posts.json", $posts);
-        header("Location: index.php?id=".$id);
-        exit;
+function generateJunk($length) {
+    $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789&:$£‘!/|\\@#^*_~`";
+    $s = "";
+    for ($i = 0; $i < $length; $i++) {
+        $s .= $chars[rand(0, strlen($chars)-1)];
     }
+    return $s;
 }
 
-if(isset($_GET['id'])){
-    $id = $_GET['id'];
-    foreach($posts as &$post){
-        if($post['id'] == $id){
-            $post['views'] += 1;
-            writeJson("data/posts.json", $posts);
-            $current = $post;
-            break;
-        }
+function generateFuncName() {
+    $base = ["GG$£", "G£G$", "£GG$", "$G£G", "G$G£", "£$GG"];
+    return $base[array_rand($base)] . generateJunk(8);
+}
+
+function encryptStr($str) {
+    $key = 0xA7;
+    $out = [];
+    for ($i = 0; $i < strlen($str); $i++) {
+        $b = ord($str[$i]);
+        $b = (($b ^ $key) + ($i * 5)) % 256;
+        $out[] = $b;
     }
+    return "string.char(" . implode(",", $out) . ")";
 }
 
-usort($posts, function($a,$b){
-    return $b['views'] - $a['views'];
-});
+function obfuscateCode($source, $level) {
+    if (empty($source)) return "-- 코드를 입력하세요";
+
+    $junkSize = ($level == 'extreme') ? 55 : (($level == 'strong') ? 42 : 32);
+    $trollMsg = ($level == 'extreme') 
+        ? 'print("이거 못풀어 개시발병신새끼야")' 
+        : 'print("Good you’re fuck bro")';
+
+    $source = preg_replace_callback('/function\s+([a-zA-Z0-9_]+)/', function($m) {
+        return "function " . generateFuncName();
+    }, $source);
+
+    $source = preg_replace_callback('/local\s+([a-zA-Z0-9_]+)/', function($m) use ($junkSize) {
+        return "local " . generateJunk($junkSize);
+    }, $source);
+
+    $source = preg_replace_callback('/"([^"]*)"/', function($m) {
+        return encryptStr($m[1]);
+    }, $source);
+
+    $source = preg_replace_callback("/'([^']*)'/", function($m) {
+        return encryptStr($m[1]);
+    }, $source);
+
+    $junk = "\nlocal " . generateJunk($junkSize + 10) . " = " . rand(10000000, 99999999) . "\n";
+
+    $final = "-- 3중 난독화 + Troll 보호 by 시우 (" . strtoupper($level) . " 모드)\n" .
+             $junk .
+             "if debug.getinfo or hookfunction or getgc or getrenv or string.dump then\n" .
+             "    " . $trollMsg . "\n" .
+             "    return\n" .
+             "end\n\n" .
+
+             $source . "\n\n" .
+             $junk;
+
+    if ($level == 'extreme') {
+        $final .= "\nwhile true do end\n";
+    }
+
+    return $final;
+}
+
+$original = $_POST['code'] ?? '';
+$level = $_POST['level'] ?? 'normal';
+$obfuscated = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($original)) {
+    $obfuscated = obfuscateCode($original, $level);
+}
 ?>
 
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ì´ê³µë·ì»´ ì»¤ë®¤ëí°</title>
-<style>
-body { font-family: Arial, sans-serif; max-width:800px; margin:auto; padding:10px; background:#f9f9f9; }
-h1 { text-align:center; }
-form { margin-top:10px; }
-input, textarea, button { width:100%; padding:8px; margin:5px 0; box-sizing:border-box; }
-textarea { height:80px; }
-button { background:#007bff; color:white; border:none; cursor:pointer; }
-button:hover { background:#0056b3; }
-.post { background:white; padding:15px; margin-bottom:15px; border-radius:5px; box-shadow:0 0 5px rgba(0,0,0,0.1); }
-.post img { max-width:100%; height:auto; margin-top:10px; border-radius:5px; }
-.comment { margin-left:10px; font-size:14px; color:#555; padding:2px 0; }
-.comment-form { display:flex; gap:5px; margin-top:5px; }
-.comment-form input { flex:1; }
-.popular { color:#ff5722; font-weight:bold; }
-</style>
+    <meta charset="UTF-8">
+    <title>시우의 Roblox Luau 3중 난독화기</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: #eee; padding: 30px; }
+        .container { max-width: 1200px; margin: auto; }
+        textarea { width: 100%; height: 320px; background: #1e1e1e; color: #0f0; border: 2px solid #444; padding: 15px; font-family: monospace; font-size: 15px; }
+        select, button { padding: 12px 18px; margin: 8px 5px; font-size: 16px; border: none; border-radius: 4px; cursor: pointer; }
+        .obf-btn { background: #ff3333; color: white; font-weight: bold; }
+        .copy-btn { background: #22cc22; color: white; font-weight: bold; }
+        #result { background: #1a1a1a; padding: 18px; border: 2px solid #555; white-space: pre-wrap; font-family: monospace; font-size: 14px; margin-top: 15px; min-height: 320px; line-height: 1.4; }
+        label { margin-right: 10px; font-weight: bold; }
+    </style>
 </head>
 <body>
+<div class="container">
+    <h1>시우의 Roblox Luau 3중 난독화기</h1>
+    <p>강도 선택 후 난독화하세요.<br>
+       <strong>극강 모드</strong>에서는 deobfuscator로 풀려고 하면 <strong>"이거 못풀어 개시발병신새끼야"</strong>만 뜹니다.</p>
 
-<h1>ì´ê³µë·ì»´ ì»¤ë®¤ëí°</h1>
+    <form method="POST">
+        <label for="level">난독화 강도 선택:</label>
+        <select name="level" id="level">
+            <option value="normal" <?= $level=='normal'?'selected':'' ?>>기본</option>
+            <option value="strong" <?= $level=='strong'?'selected':'' ?>>강력</option>
+            <option value="extreme" <?= $level=='extreme'?'selected':'' ?>>극강</option>
+        </select><br><br>
 
-<?php if(isset($current)): ?>
-<div class="post">
-    <h2><?=htmlspecialchars($current['title'])?></h2>
-    <p><?=nl2br(htmlspecialchars($current['content']))?></p>
-    <?php if($current['image']): ?>
-        <img src="<?=htmlspecialchars($current['image'])?>">
+        <textarea name="code" placeholder="여기에 원본 Luau 스크립트를 붙여넣으세요..."><?= htmlspecialchars($original) ?></textarea><br>
+        <button type="submit" class="obf-btn">난독화하기</button>
+    </form>
+
+    <?php if ($obfuscated): ?>
+    <h2>✅ 난독화 완료 (<?= strtoupper($level) ?> 모드)</h2>
+    <div id="result"><?= htmlspecialchars($obfuscated) ?></div>
+    <button onclick="copyToClipboard()" class="copy-btn">복사하기</button>
     <?php endif; ?>
-    <p>ì¡°íì: <?=$current['views']?> | ëê¸: <?=count($current['comments'])?></p>
-
-    <div>
-        <strong>ëê¸</strong>
-        <?php foreach($current['comments'] as $c): ?>
-            <div class="comment">- <?=htmlspecialchars($c)?></div>
-        <?php endforeach; ?>
-        <form method="post" class="comment-form">
-            <input type="hidden" name="action" value="comment">
-            <input type="hidden" name="id" value="<?=$current['id']?>">
-            <input type="text" name="comment" placeholder="ëê¸ ìì±" required>
-            <button type="submit">ëê¸</button>
-        </form>
-    </div>
-    <a href="index.php">ëª©ë¡ì¼ë¡ ëìê°ê¸°</a>
 </div>
-<?php else: ?>
 
-<h2>ê¸ì°ê¸°</h2>
-<form method="post" enctype="multipart/form-data">
-    <input type="hidden" name="action" value="write">
-    ì ëª©: <input type="text" name="title" required>
-    ë´ì©: <textarea name="content" required></textarea>
-    ì´ë¯¸ì§: <input type="file" name="image"><br>
-    <button type="submit">ìì±</button>
-</form>
-
-<hr>
-
-<h2>ê²ìê¸ ëª©ë¡ (ì¡°íì ê¸°ì¤ ì¸ê¸°ê¸)</h2>
-
-<?php foreach($posts as $post): ?>
-<div class="post">
-    <h3>
-        <a href="index.php?id=<?=$post['id']?>"><?=htmlspecialchars($post['title'])?></a>
-        <?php if($post['views'] >= 3) echo '<span class="popular">ð¥ ì¸ê¸°ê¸</span>'; ?>
-    </h3>
-    <p><?=nl2br(htmlspecialchars($post['content']))?></p>
-    <?php if($post['image']): ?>
-        <img src="<?=htmlspecialchars($post['image'])?>">
-    <?php endif; ?>
-    <p>ì¡°íì: <?=$post['views']?> | ëê¸: <?=count($post['comments'])?></p>
-</div>
-<?php endforeach; ?>
-
-<?php endif; ?>
-
+<script>
+function copyToClipboard() {
+    const text = document.getElementById('result').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('✅ 난독화된 코드가 클립보드에 복사되었습니다!');
+    }).catch(() => {
+        alert('복사 실패했습니다. 직접 드래그해서 복사하세요.');
+    });
+}
+</script>
 </body>
 </html>
